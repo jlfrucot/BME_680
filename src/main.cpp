@@ -17,14 +17,20 @@ extern "C" {
 #include <AsyncMqttClient.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <Update.h>
+#include <SPIFFS.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
+#include <ArduinoJson.h>
 
-#include "wifikeys.h"
+// #include "wifikeys.h"
 
 // Enable/Disable Serial
 #define DEBUG false // true pour avoir les debug sur le port série
 #define Serial if(DEBUG)Serial
+
+#define uS_TO_S_FACTOR 1000000 /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP 15       /* Time ESP32 will go to sleep (in seconds) */
 
 // #define WIFI_SSID "Livebox-E4C0"
 // #define WIFI_PASSWORD "745gUQSoRdbPfAZbxT"
@@ -57,7 +63,7 @@ float gasResistance;
 
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
-TimerHandle_t wifiReconnectTimer;
+// TimerHandle_t wifiReconnectTimer;
 
 unsigned long previousMillis = 0;   // Stores last time temperature was published
 const long interval = 10000;        // Interval at which to publish sensor readings
@@ -79,35 +85,60 @@ void getBME680Readings(){
   gasResistance = bme.gas_resistance / 1000.0;
 }
 
-void connectToWifi() {
-  Serial.println("Connecting to Wi-Fi...");
-  WiFi.config(deviceLocaleIP, gateway, subnet); // Parametrer IP fixe
-  WiFi.begin(ssid, password);
+// void connectToWifi() {
+//   Serial.println("Connecting to Wi-Fi...");
+//   WiFi.config(deviceLocaleIP, gateway, subnet); // Parametrer IP fixe
+//   WiFi.begin(ssid, password);
+// }
+void restartESP32Cam()
+{
+    esp_sleep_enable_timer_wakeup(uS_TO_S_FACTOR * TIME_TO_SLEEP);
+    esp_deep_sleep_start();
 }
-
+void onWiFiEventFired(WiFiEvent_t event)
+{
+    // On traite les évènements émis par le wifi
+    switch (event)
+    {
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        // Si on est déconnecté, on redémarre l'esp
+        Serial.println("On a perdu le wifi");
+        restartESP32Cam();
+        break;
+    case SYSTEM_EVENT_STA_GOT_IP:
+        Serial.print("On a obtenu une adresse IP : ");
+        Serial.println(WiFi.localIP());
+        break;
+    case SYSTEM_EVENT_STA_CONNECTED:
+        Serial.println("WiFi connecté");
+        break;
+    default:
+        break;
+    }
+}
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
   mqttClient.connect();
 }
 
-void WiFiEvent(WiFiEvent_t event) {
-  Serial.printf("[WiFi-event] event: %d\n", event);
-  switch(event) {
-    case SYSTEM_EVENT_STA_GOT_IP:
-      Serial.println("WiFi connected");
-      Serial.println("IP address: ");
-      Serial.println(WiFi.localIP());
-      connectToMqtt();
-      break;
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-      Serial.println("WiFi lost connection");
-      xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-      xTimerStart(wifiReconnectTimer, 0);
-      break;
-    default:
-      break;
-  }
-}
+// void WiFiEvent(WiFiEvent_t event) {
+//   Serial.printf("[WiFi-event] event: %d\n", event);
+//   switch(event) {
+//     case SYSTEM_EVENT_STA_GOT_IP:
+//       Serial.println("WiFi connected");
+//       Serial.println("IP address: ");
+//       Serial.println(WiFi.localIP());
+//       connectToMqtt();
+//       break;
+//     case SYSTEM_EVENT_STA_DISCONNECTED:
+//       Serial.println("WiFi lost connection");
+//       xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+//       // xTimerStart(wifiReconnectTimer, 0);
+//       break;
+//     default:
+//       break;
+//   }
+// }
 
 void onMqttConnect(bool sessionPresent) {
   Serial.println("Connected to MQTT.");
@@ -149,11 +180,73 @@ void setup() {
     Serial.println(F("Could not find a valid BME680 sensor, check wiring!"));
     while (1);
   }
-  
-  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
-  wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
+  ////////////////////////     WiFi    ////////////////////////////////
+  // On tente de récupérer les paramètres enregistrés dans la mémoire permanente
 
-  WiFi.onEvent(WiFiEvent);
+    // Démarre le système de fichier SPIFFS
+    if (!SPIFFS.begin())
+    {
+        Serial.println("An Error has occurred while mounting SPIFFS");
+    }
+    File file = SPIFFS.open("/settings.json"); // On ouvre le fichier contenant les différents paramètres
+
+    StaticJsonDocument<500> doc;
+    DeserializationError error = deserializeJson(doc, file);
+    if (error)
+    {
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.f_str());
+        // return;
+    }
+
+    JsonObject wifi = doc["wifi"];
+
+    JsonArray wifi_localeIP = wifi["localeIP"];
+    IPAddress mylocalIp(wifi_localeIP[0],
+                        wifi_localeIP[1],
+                        wifi_localeIP[2],
+                        wifi_localeIP[3]);
+
+    JsonArray wifi_subnet = wifi["subnet"];
+    IPAddress subnet(wifi_subnet[0],
+                     wifi_subnet[1],
+                     wifi_subnet[2],
+                     wifi_subnet[3]);
+
+    JsonArray wifi_gateway = wifi["gateway"];
+    IPAddress gateway(wifi_gateway[0],
+                      wifi_gateway[1],
+                      wifi_gateway[2],
+                      wifi_gateway[3]);
+
+    const char *wifikey_ssid = doc["wifikey"]["ssid"];
+    const char *wifikey_password = doc["wifikey"]["password"];
+
+    int webserverPort = doc["webserverPort"];
+
+file.close();
+    // Fix WiFi static IP
+    
+    Serial.println(wifikey_ssid);
+    Serial.println(wifikey_password);
+    WiFi.mode(WIFI_STA);
+    // WiFi.onEvent(onWiFiEventFired);
+    WiFi.config(mylocalIp, gateway, subnet);
+    WiFi.begin(wifikey_ssid, wifikey_password);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(F("."));
+    }
+
+    Serial.println(F("WiFi connected"));
+    Serial.println("");
+    Serial.println(WiFi.localIP());
+
+  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+  // wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
+
+  WiFi.onEvent(onWiFiEventFired);
 
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
@@ -163,7 +256,7 @@ void setup() {
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   // If your broker requires authentication (username and password), set them below
   mqttClient.setCredentials("frucot", "jekyll5832");
-  connectToWifi();
+  // connectToWifi();
   
   // Set up oversampling and filter initialization
   bme.setTemperatureOversampling(BME680_OS_8X);
