@@ -218,13 +218,19 @@ void setup() {
                       wifi_gateway[1],
                       wifi_gateway[2],
                       wifi_gateway[3]);
-
+    JsonObject mqtt = doc["remoteMQTT"];
+    JsonArray mqttBrokerIP = mqtt["mqttIP"];
+    IPAddress mqttIP(mqttBrokerIP[0],
+                      mqttBrokerIP[1],
+                      mqttBrokerIP[2],
+                      mqttBrokerIP[3]);
+    const char *mqttUser = doc["mqttkey"]["MQTTUser"];
+    const char *mqttPassword = doc["mqttkey"]["MQTTPassword"];
     const char *wifikey_ssid = doc["wifikey"]["ssid"];
     const char *wifikey_password = doc["wifikey"]["password"];
 
     int webserverPort = doc["webserverPort"];
 
-file.close();
     // Fix WiFi static IP
     
     Serial.println(wifikey_ssid);
@@ -253,9 +259,9 @@ file.close();
   //mqttClient.onSubscribe(onMqttSubscribe);
   //mqttClient.onUnsubscribe(onMqttUnsubscribe);
   mqttClient.onPublish(onMqttPublish);
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setServer(mqttIP, MQTT_PORT);
   // If your broker requires authentication (username and password), set them below
-  mqttClient.setCredentials("frucot", "jekyll5832");
+  mqttClient.setCredentials(mqttUser, mqttPassword);
   // connectToWifi();
   
   // Set up oversampling and filter initialization
@@ -264,6 +270,7 @@ file.close();
   bme.setPressureOversampling(BME680_OS_4X);
   bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
   bme.setGasHeater(320, 150); // 320*C for 150 ms
+file.close();
 }
 
 void loop() {

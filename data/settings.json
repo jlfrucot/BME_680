@@ -1,4 +1,3 @@
-
 {
     "wifi": {
         "localeIP": [
@@ -20,19 +19,21 @@
             1
         ]
     },
-    "remoteMQTT" : {
-        "mqttIP" : [
+    "remoteMQTT": {
+        "mqttIP": [
             192,
             168,
             1,
-            100],
-        "MQTTUser" : "frucot",
-        "MQTTPassWord" : "jekyll5832"
+            100
+        ]
     },
-        "wifikey": {
+    "mqttkey": {
+        "MQTTUser": "frucot",
+        "MQTTPassWord": "jekyll5832"
+    },
+    "wifikey": {
         "ssid": "Livebox-E4C0",
         "password": "745gUQSoRdbPfAZbxT"
     },
-
     "webserverPort": 8103
 }
