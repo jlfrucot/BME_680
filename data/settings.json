@@ -29,7 +29,8 @@
     },
     "mqttkey": {
         "MQTTUser": "frucot",
-        "MQTTPassWord": "jekyll5832"
+        "MQTTPassWord": "jekyll5832",
+        "MQTTPort": 1883
     },
     "wifikey": {
         "ssid": "Livebox-E4C0",

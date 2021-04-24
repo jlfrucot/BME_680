@@ -36,8 +36,8 @@ extern "C" {
 // #define WIFI_PASSWORD "745gUQSoRdbPfAZbxT"
 
 // Raspberry Pi Mosquitto MQTT Broker
-#define MQTT_HOST IPAddress(192, 168, 1, 100)
-#define MQTT_PORT 1883
+// #define MQTT_HOST IPAddress(192, 168, 1, 100) 
+// #define MQTT_PORT 1883
 
 // Temperature MQTT Topics
 #define MQTT_PUB_TEMP "esp/bme680/temperature"
@@ -219,6 +219,8 @@ void setup() {
                       wifi_gateway[2],
                       wifi_gateway[3]);
     JsonObject mqtt = doc["remoteMQTT"];
+    const char *wifikey_ssid = doc["wifikey"]["ssid"];
+    const char *wifikey_password = doc["wifikey"]["password"];
     JsonArray mqttBrokerIP = mqtt["mqttIP"];
     IPAddress mqttIP(mqttBrokerIP[0],
                       mqttBrokerIP[1],
@@ -226,8 +228,7 @@ void setup() {
                       mqttBrokerIP[3]);
     const char *mqttUser = doc["mqttkey"]["MQTTUser"];
     const char *mqttPassword = doc["mqttkey"]["MQTTPassword"];
-    const char *wifikey_ssid = doc["wifikey"]["ssid"];
-    const char *wifikey_password = doc["wifikey"]["password"];
+    const int mqttPort = doc["mqttkey"]["MQTTPort"];
 
     int webserverPort = doc["webserverPort"];
 
@@ -259,7 +260,7 @@ void setup() {
   //mqttClient.onSubscribe(onMqttSubscribe);
   //mqttClient.onUnsubscribe(onMqttUnsubscribe);
   mqttClient.onPublish(onMqttPublish);
-  mqttClient.setServer(mqttIP, MQTT_PORT);
+  mqttClient.setServer(mqttIP, mqttPort);
   // If your broker requires authentication (username and password), set them below
   mqttClient.setCredentials(mqttUser, mqttPassword);
   // connectToWifi();
