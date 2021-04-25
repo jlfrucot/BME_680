@@ -14,6 +14,7 @@ extern "C" {
   #include "freertos/FreeRTOS.h"
   #include "freertos/timers.h"
 }
+#include <WebServer.h>
 #include <AsyncMqttClient.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -23,6 +24,7 @@ extern "C" {
 #include "Adafruit_BME680.h"
 #include <ArduinoJson.h>
 
+#include "ota.h"
 // #include "wifikeys.h"
 
 // Enable/Disable Serial
@@ -38,13 +40,14 @@ extern "C" {
 // Raspberry Pi Mosquitto MQTT Broker
 // #define MQTT_HOST IPAddress(192, 168, 1, 100) 
 // #define MQTT_PORT 1883
-
+WebServer server(80); // par defaut
 // Temperature MQTT Topics
 #define MQTT_PUB_TEMP "esp/bme680/temperature"
 #define MQTT_PUB_HUM  "esp/bme680/humidity"
 #define MQTT_PUB_PRES "esp/bme680/pressure"
 #define MQTT_PUB_GAS  "esp/bme680/gas"
 #define BME_TEMP_OFFSET 3.5
+
 
 /*#define BME_SCK 14
 #define BME_MISO 12
@@ -61,6 +64,8 @@ float humidity;
 float pressure;
 float gasResistance;
 
+
+#define ENABLE_WEBSERVER
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
 // TimerHandle_t wifiReconnectTimer;
@@ -171,7 +176,18 @@ void onMqttPublish(uint16_t packetId) {
   Serial.print("  packetId: ");
   Serial.println(packetId);
 }
-
+void handleNotFound()
+{
+    String message = "Server is running!\n\n";
+    message += "URI: ";
+    message += server.uri();
+    message += "\nMethod: ";
+    message += (server.method() == HTTP_GET) ? "GET" : "POST";
+    message += "\nArguments: ";
+    message += server.args();
+    message += "\n";
+    server.send(200, "text/plain", message);
+}
 void setup() {
   Serial.begin(115200);
   Serial.println();
@@ -271,6 +287,49 @@ void setup() {
   bme.setPressureOversampling(BME680_OS_4X);
   bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
   bme.setGasHeater(320, 150); // 320*C for 150 ms
+
+  #ifdef ENABLE_WEBSERVER
+    // server.on("/", HTTP_GET, handle_jpg_stream);
+
+    /*handling uploading firmware file */
+    server.on("/serverIndex", HTTP_GET, []() {
+        server.sendHeader("Connection", "close");
+        server.send(200, "text/html", serverIndex);
+    });
+
+    server.on(
+        "/update", HTTP_POST, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart(); }, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
+#if DEBUG
+          Update.printError(out);
+#endif
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      /* flashing firmware to ESP*/
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+#if DEBUG
+          Update.printError(out);
+#endif
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) { //true to set the size to the current progress
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      } else {
+#if DEBUG
+          Update.printError(out);
+#endif
+
+      }
+    } });
+    server.onNotFound(handleNotFound);
+    server.begin(webserverPort);
+#endif
 file.close();
 }
 
